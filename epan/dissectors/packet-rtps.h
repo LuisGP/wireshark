@@ -142,6 +142,27 @@ static const value_string type_object_kind [] = {
 };
 
 typedef enum {
+    RETCODE_OK,
+    RETCODE_BAD_REQUEST,
+    RETCODE_EXISTING_CONNECTION,
+    RETCODE_INVALID_PORT,
+    RETCODE_UNKNOWN_LOCATOR,
+    RETCODE_INCOMPATIBLE_VERSION,
+    RETCODE_SERVER_ERROR,
+} ResponseCode;
+
+static const value_string response_code_kind [] = {
+  { RETCODE_OK,                         "RETCODE_OK" },
+  { RETCODE_BAD_REQUEST,                "RETCODE_BAD_REQUEST" },
+  { RETCODE_EXISTING_CONNECTION,        "RETCODE_EXISTING_CONNECTION" },
+  { RETCODE_INVALID_PORT,               "RETCODE_INVALID_PORT" },
+  { RETCODE_UNKNOWN_LOCATOR,            "RETCODE_UNKNOWN_LOCATOR" },
+  { RETCODE_INCOMPATIBLE_VERSION,       "RETCODE_INCOMPATIBLE_VERSION" },
+  { RETCODE_SERVER_ERROR,               "RETCODE_SERVER_ERROR" },
+  { 0, NULL }
+};
+
+typedef enum {
     EXTENSIBILITY_INVALID = 1,
     EXTENSIBILITY_FINAL,
     EXTENSIBILITY_EXTENSIBLE,
@@ -171,6 +192,7 @@ static dissector_table_t rtps_type_name_table;
 #define RTPS_MAGIC_NUMBER   0x52545053 /* RTPS */
 #define RTPX_MAGIC_NUMBER   0x52545058 /* RTPX */
 #define RTPS_SEQUENCENUMBER_UNKNOWN     0xffffffff00000000 /* {-1,0} as uint64 */
+#define RTCP_MAGIC_NUMBER   0x52544350 /* RTCP */
 
 /* Traffic type */
 #define PORT_BASE                       (7400)
@@ -647,6 +669,23 @@ static dissector_table_t rtps_type_name_table;
 #define RTI_OSAPI_COMPRESSION_CLASS_ID_ZLIB      (1)
 #define RTI_OSAPI_COMPRESSION_CLASS_ID_BZIP2     (2)
 #define RTI_OSAPI_COMPRESSION_CLASS_ID_AUTO      (G_MAXUINT32)
+
+/* RTCP CtrlPrtlMsgKind */
+#define BIND_CONNECTION_REQUEST                 (0xD1)
+#define BIND_CONNECTION_RESPONSE                (0xE1)
+#define OPEN_LOGICAL_PORT_REQUEST               (0xD2)
+#define OPEN_LOGICAL_PORT_RESPONSE              (0xE2)
+#define CHECK_LOGICAL_PORT_REQUEST              (0xD3)
+#define CHECK_LOGICAL_PORT_RESPONSE             (0xE3)
+#define KEEP_ALIVE_REQUEST                      (0xD4)
+#define KEEP_ALIVE_RESPONSE                     (0xE4)
+#define LOGICAL_PORT_IS_CLOSED_REQUEST          (0xD5)
+#define UNBIND_CONNECTION_REQUEST               (0xD6)
+
+/* RTCP Flags */
+#define Endianess                               (0x01)
+#define HasPayload                              (0x02)
+#define RequiresResponse                        (0x04)
 
 /* These are registered in packet-rtps.c but used in packet-rtps-utils.c */
 static gint ett_rtps_dissection_tree = -1;

@@ -73,6 +73,7 @@ static const char *const SM_EXTRA_TMINUS = "(t-)";
 /***************************************************************************/
 /* Protocol Fields Identifiers */
 static int proto_rtps                           = -1;
+static int proto_rtcp                           = -1;
 static int hf_rtps_magic                        = -1;
 static int hf_rtps_protocol_version             = -1;
 static int hf_rtps_protocol_version_major       = -1;
@@ -417,6 +418,11 @@ static int hf_rtps_flag_unregistered                            = -1;
 static int hf_rtps_flag_disposed                                = -1;
 static int hf_rtps_param_status_info_flags                      = -1;
 
+static int hf_rtcp_flags                                        = -1;
+static int hf_rtcp_flag_requires_response                       = -1;
+static int hf_rtcp_flag_has_payload                             = -1;
+static int hf_rtcp_flag_endianness                              = -1;
+
 static int hf_rtps_flag_participant_announcer                   = -1;
 static int hf_rtps_flag_participant_detector                    = -1;
 static int hf_rtps_flag_publication_announcer                   = -1;
@@ -502,14 +508,26 @@ static int hf_rtps_reassembled_in                               = -1;
 static int hf_rtps_reassembled_length                           = -1;
 static int hf_rtps_reassembled_data                             = -1;
 
+static int hf_rtcp_magic                        = -1;
+static int hf_rtcp_length                       = -1;
+static int hf_rtcp_crc                          = -1;
+static int hf_rtcp_port                         = -1;
+static int hf_rtcp_response_code                = -1;
+static int hf_rtcp_cpm_length                   = -1;
+static int hf_rtcp_transaction_id               = -1;
+static int hf_rtcp_kind                         = -1;
+static int hf_rtcp_request_kind                 = -1;
+
 /* Subtree identifiers */
 static gint ett_rtps                            = -1;
+static gint ett_rtcp                            = -1;
 static gint ett_rtps_default_mapping            = -1;
 static gint ett_rtps_proto_version              = -1;
 static gint ett_rtps_submessage                 = -1;
 static gint ett_rtps_parameter_sequence         = -1;
 static gint ett_rtps_parameter                  = -1;
 static gint ett_rtps_flags                      = -1;
+static gint ett_rtcp_flags                      = -1;
 static gint ett_rtps_entity                     = -1;
 static gint ett_rtps_generic_guid               = -1;
 static gint ett_rtps_rdentity                   = -1;
@@ -1227,6 +1245,18 @@ static int* const DATA_FLAGSv2[] = {
   &hf_rtps_flag_data_present_v2,                /* Bit 2 */
   &hf_rtps_flag_inline_qos_v2,                  /* Bit 1 */
   &hf_rtps_flag_endianness,                     /* Bit 0 */
+  NULL
+};
+
+static int* const RTCP_FLAGS[] = {
+  &hf_rtps_flag_reserved80,                     /* Bit 7 */
+  &hf_rtps_flag_reserved40,                     /* Bit 6 */
+  &hf_rtps_flag_reserved20,                     /* Bit 5 */
+  &hf_rtps_flag_reserved10,                     /* Bit 4 */
+  &hf_rtps_flag_reserved08,                     /* Bit 3 */
+  &hf_rtcp_flag_requires_response,              /* Bit 2 */
+  &hf_rtcp_flag_has_payload,                    /* Bit 1 */
+  &hf_rtcp_flag_endianness,                     /* Bit 0 */
   NULL
 };
 
@@ -10431,17 +10461,17 @@ static gboolean dissect_rtps_submessage_v1(tvbuff_t *tvb, packet_info *pinfo, gi
 
     case SUBMESSAGE_ACKNACK:
       dissect_ACKNACK(tvb, pinfo, offset, flags, encoding,
-		  octets_to_next_header, rtps_submessage_tree, submessage_item, dst_guid);
+          octets_to_next_header, rtps_submessage_tree, submessage_item, dst_guid);
       break;
 
     case SUBMESSAGE_HEARTBEAT:
       dissect_HEARTBEAT(tvb, pinfo, offset, flags, encoding,
-		  octets_to_next_header, rtps_submessage_tree, version, guid);
+          octets_to_next_header, rtps_submessage_tree, version, guid);
       break;
 
     case SUBMESSAGE_GAP:
       dissect_GAP(tvb, pinfo, offset, flags, encoding,
-		  octets_to_next_header, rtps_submessage_tree, guid);
+          octets_to_next_header, rtps_submessage_tree, guid);
       break;
 
     case SUBMESSAGE_INFO_TS:
@@ -10514,11 +10544,11 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   col_clear(pinfo->cinfo, COL_INFO);
 
   /* create display subtree for the protocol */
-  ti = proto_tree_add_item(tree, proto_rtps, tvb, 0, -1, ENC_NA);
+  ti = proto_tree_add_item(tree, proto_rtps, tvb, offset, -1, ENC_NA);
   rtps_tree = proto_item_add_subtree(ti, ett_rtps);
 
   /* magic */
-  proto_tree_add_item(rtps_tree, hf_rtps_magic, tvb, 0, 4, ENC_NA | ENC_ASCII);
+  proto_tree_add_item(rtps_tree, hf_rtps_magic, tvb, offset, 4, ENC_NA | ENC_ASCII);
 
   /*  Protocol Version */
   version = rtps_util_add_protocol_version(rtps_tree, tvb, offset+4);
@@ -10633,27 +10663,27 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     }
     if ((nature == PORT_METATRAFFIC_UNICAST) || (nature == PORT_USERTRAFFIC_UNICAST) ||
         (version < 0x0200)) {
-      mapping_tree = proto_tree_add_subtree_format(rtps_tree, tvb, 0, 0,
+      mapping_tree = proto_tree_add_subtree_format(rtps_tree, tvb, offset, 0,
                         ett_rtps_default_mapping, NULL, "Default port mapping: domainId=%s, "
                         "participantIdx=%d, nature=%s",
                         domain_id_str,
                         participant_idx,
                         val_to_str(nature, nature_type_vals, "%02x"));
     } else {
-      mapping_tree = proto_tree_add_subtree_format(rtps_tree, tvb, 0, 0,
+      mapping_tree = proto_tree_add_subtree_format(rtps_tree, tvb, offset, 0,
                         ett_rtps_default_mapping, NULL, "Default port mapping: %s, domainId=%s",
                         val_to_str(nature, nature_type_vals, "%02x"),
                         domain_id_str);
     }
 
-    ti = proto_tree_add_uint(mapping_tree, hf_rtps_domain_id, tvb, 0, 0, domain_id);
+    ti = proto_tree_add_uint(mapping_tree, hf_rtps_domain_id, tvb, offset, 0, domain_id);
     proto_item_set_generated(ti);
     if ((nature == PORT_METATRAFFIC_UNICAST) || (nature == PORT_USERTRAFFIC_UNICAST) ||
         (version < 0x0200)) {
-      ti = proto_tree_add_uint(mapping_tree, hf_rtps_participant_idx, tvb, 0, 0, participant_idx);
+      ti = proto_tree_add_uint(mapping_tree, hf_rtps_participant_idx, tvb, offset, 0, participant_idx);
       proto_item_set_generated(ti);
     }
-    ti = proto_tree_add_uint(mapping_tree, hf_rtps_nature_type, tvb, 0, 0, nature);
+    ti = proto_tree_add_uint(mapping_tree, hf_rtps_nature_type, tvb, offset, 0, nature);
     proto_item_set_generated(ti);
   }
 
@@ -10755,6 +10785,227 @@ static gboolean dissect_rtps_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
   gint offset = 4;
 
   return dissect_rtps(tvb, pinfo, tree, offset);
+}
+
+static gboolean add_response_code(proto_tree *tree, guint value)
+{
+    proto_item_append_text(tree, "(%s)", val_to_str(value, response_code_kind, "(0x%016x)"));
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_bind_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint16 length)
+{
+    (void)pinfo;
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Bind Connection Request");
+    rtps_util_add_protocol_version(sub_tree, tvb, offset);
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_bind_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_port_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)pinfo;
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 2, 0, &sub_tree, "Open Logical Port Request");
+    //proto_tree_add_item(sub_tree, hf_rtcp_request_kind, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset+10, 2, ENC_LITTLE_ENDIAN);
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_port_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)pinfo;
+    proto_tree *sub_tree;
+    proto_tree *item;
+    guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 4, 0, &sub_tree, "Open Logical Port Response");
+    item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_check_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_check_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_ka_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_ka_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_port_closed_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_unbind_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    (void)tvb;
+    (void)pinfo;
+    (void)tree;
+    (void)offset;
+    return TRUE;
+}
+
+static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    guint8 kind = tvb_get_guint8(tvb, offset);
+    guint8 flags = tvb_get_guint8(tvb, offset+1);
+    guint16 length = tvb_get_guint16(tvb, offset+2, ENC_NA);
+    //guint32 id1 = tvb_get_guint32(tvb, 4, ENC_NA);
+    //guint32 id2 = tvb_get_guint32(tvb, 8, ENC_NA);
+    //guint32 id3 = tvb_get_guint32(tvb, 12, ENC_NA);
+
+
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, -1, 0, &sub_tree, "Control Protocol Message");
+    proto_tree_add_item(sub_tree, hf_rtcp_kind, tvb, offset, 1, ENC_NA);
+    proto_tree_add_bitmask_value(sub_tree, tvb, offset + 1, hf_rtcp_flags, ett_rtcp_flags, RTCP_FLAGS, flags);
+    //proto_tree_add_uint(sub_tree, hf_rtcp_cpm_length, tvb, 2, 2, length);
+    proto_tree_add_item(sub_tree, hf_rtcp_cpm_length, tvb, offset + 2, 2, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(sub_tree, hf_rtcp_transaction_id, tvb, offset + 4, 12, ENC_NA);
+
+    offset += 16;
+
+    switch (kind)
+    {
+    case BIND_CONNECTION_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_REQUEST");
+        return dissect_rtcp_bind_req(tvb, pinfo, sub_tree, offset, length);
+    case BIND_CONNECTION_RESPONSE:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_RESPONSE");
+        proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_RESPONSE");
+        return dissect_rtcp_bind_rep(tvb, pinfo, sub_tree, offset);
+    case OPEN_LOGICAL_PORT_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "OPEN_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "OPEN_LOGICAL_PORT_REQUEST");
+        return dissect_rtcp_port_req(tvb, pinfo, sub_tree, offset);
+    case OPEN_LOGICAL_PORT_RESPONSE:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "OPEN_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(sub_tree, "(%s)", "OPEN_LOGICAL_PORT_RESPONSE");
+        return dissect_rtcp_port_rep(tvb, pinfo, sub_tree, offset);
+    case CHECK_LOGICAL_PORT_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_REQUEST");
+        return dissect_rtcp_check_req(tvb, pinfo, sub_tree, offset);
+    case CHECK_LOGICAL_PORT_RESPONSE:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_RESPONSE");
+        return dissect_rtcp_check_rep(tvb, pinfo, sub_tree, offset);
+    case KEEP_ALIVE_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "KEEP_ALIVE_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "KEEP_ALIVE_REQUEST");
+        return dissect_rtcp_ka_req(tvb, pinfo, sub_tree, offset);
+    case KEEP_ALIVE_RESPONSE:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "KEEP_ALIVE_RESPONSE");
+        proto_item_append_text(sub_tree, "(%s)", "KEEP_ALIVE_RESPONSE");
+        return dissect_rtcp_ka_rep(tvb, pinfo, sub_tree, offset);
+    case LOGICAL_PORT_IS_CLOSED_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "LOGICAL_PORT_IS_CLOSED_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "LOGICAL_PORT_IS_CLOSED_REQUEST");
+        return dissect_rtcp_port_closed_req(tvb, pinfo, sub_tree, offset);
+    case UNBIND_CONNECTION_REQUEST:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "UNBIND_CONNECTION_REQUEST");
+        proto_item_append_text(sub_tree, "(%s)", "UNBIND_CONNECTION_REQUEST");
+        return dissect_rtcp_unbind_req(tvb, pinfo, sub_tree, offset);
+    default:
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "UNKOWN");
+        return FALSE;
+    }
+}
+
+static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+{
+  guint32 magic_number;
+
+  /* Check 'RTCP' signature:
+   * A header is invalid if it has less than 16 octets
+   */
+  if (tvb_reported_length_remaining(tvb, 0) < 16)
+    return FALSE;
+
+  magic_number = tvb_get_ntohl(tvb, 0);
+  if (magic_number != RTCP_MAGIC_NUMBER) {
+      return FALSE;
+  }
+
+  proto_item *ti;
+  proto_tree *rtcp_tree;
+  col_set_str(pinfo->cinfo, COL_PROTOCOL, "RTCP");
+  col_clear(pinfo->cinfo, COL_INFO);
+
+  /* create display subtree for the protocol */
+  ti = proto_tree_add_item(tree, proto_rtcp, tvb, 0, -1, ENC_NA);
+  rtcp_tree = proto_item_add_subtree(ti, ett_rtcp);
+  /* magic */
+  proto_tree_add_item(rtcp_tree, hf_rtcp_magic, tvb, 0, 4, ENC_NA | ENC_ASCII);
+
+  /* In RTCP the length is a CDR 32 bit unsigned integer at position 4.
+   * It counts the RTCP Header and contents, but not possible RTPS packet.
+   */
+  //guint32 length = tvb_get_guint32(tvb, 4, ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_length, tvb, 4, 4, ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_crc, tvb, 8, 4, ENC_NA);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_port, tvb, 12, 2, ENC_LITTLE_ENDIAN);
+  gint offset = 14; // RTCP + length + CRC + logicalPort
+
+  // Ctrl Msg Header...
+  /* In RTCP the length is a CDR 16 bit unsigned integer at position 16.
+   * It counts the RTCP Header and contents, but not possible RTPS packet.
+   */
+  //guint16 tcp_len = tvb_get_ntohs(tvb, 2);
+  //gint offset = tcp_len;
+
+
+  gboolean result = dissect_rtps(tvb, pinfo, rtcp_tree, offset);
+
+  if (!result)
+  {
+      result = dissect_rtcp_ctrl_msg(tvb, pinfo, rtcp_tree, offset);
+  }
+
+  return result;
 }
 
 static gboolean dissect_rtps_rtitcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -13231,6 +13482,121 @@ void proto_register_rtps(void) {
       {"STRING", "rtps.dissection.string",
         FT_STRINGZ, BASE_NONE, NULL, 0, NULL, HFILL }
     },
+
+    /* RTCP */
+    { &hf_rtcp_magic, {
+        "Magic",
+        "rtcp.magic",
+        FT_STRING,
+        BASE_NONE,
+        NULL,
+        0,
+        "RTCP magic",
+        HFILL }
+    },
+    { &hf_rtcp_length, {
+        "Length",
+        "rtcp.length",
+        FT_UINT32,
+        BASE_DEC,
+        NULL,
+        0,
+        "RTCP Header Length",
+        HFILL }
+    },
+    { &hf_rtcp_crc, {
+        "CRC",
+        "rtcp.crc",
+        FT_UINT32,
+        BASE_HEX,
+        NULL,
+        0,
+        "RTCP Header CRC",
+        HFILL }
+    },
+    { &hf_rtcp_response_code, {
+        "Response Code",
+        "rtcp.response_code",
+        FT_UINT32,
+        BASE_HEX,
+        NULL,
+        0,
+        "RTCP Response Code",
+        HFILL }
+    },
+    { &hf_rtcp_request_kind, {
+        "RequestKind",
+        "rtcp.request_kind",
+        FT_UINT32,
+        BASE_HEX,
+        NULL,
+        0,
+        "RTCP RequestKind",
+        HFILL }
+    },
+    { &hf_rtcp_port, {
+        "Logical Port",
+        "rtcp.logical_port",
+        FT_UINT16,
+        BASE_DEC,
+        NULL,
+        0,
+        "RTCP Logical Port",
+        HFILL }
+    },
+    { &hf_rtcp_flag_endianness, {
+        "Endianness bit", "rtcp.flag.endianness",
+        FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x01, NULL, HFILL }
+    },
+    { &hf_rtcp_flag_has_payload, {
+        "Has payload", "rtcp.flag.has_payload",
+        FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x02, NULL, HFILL }
+    },
+    { &hf_rtcp_flag_requires_response, {
+        "Requires response", "rtcp.flag.requires_response",
+        FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x04, NULL, HFILL }
+    },
+    { &hf_rtcp_flags, {
+        "Flags",
+        "rtcp.flags",
+        FT_UINT8,
+        BASE_HEX,
+        NULL,
+        0,
+        "bitmask representing the RTCP flags",
+        HFILL }
+    },
+    { &hf_rtcp_cpm_length, {
+        "Length",
+        "rtcp.cpm.length",
+        FT_UINT16,
+        BASE_DEC,
+        NULL,
+        0,
+        "RTCP CPM Length",
+        HFILL }
+    },
+    { &hf_rtcp_transaction_id, {
+        "Transaction ID",
+        "rtcp.cpm.id",
+        FT_BYTES,
+        BASE_NONE,
+        NULL,
+        0,
+        "RTCP Transaction ID",
+        HFILL }
+    },
+    { &hf_rtcp_kind, {
+        "CPM Kind",
+        "rtcp.cpm.kind",
+        FT_UINT8,
+        BASE_HEX,
+        NULL,
+        0,
+        "RTCP Control Protocol Message Kind",
+        HFILL }
+    },
+
   };
 
   static gint *ett[] = {
@@ -13310,7 +13676,9 @@ void proto_register_rtps(void) {
     &ett_rtps_fragments,
     &ett_rtps_data_representation,
     &ett_rtps_decompressed_type_object,
-    &ett_rtps_dissection_tree
+    &ett_rtps_dissection_tree,
+    &ett_rtcp,
+    &ett_rtcp_flags,
   };
 
   static ei_register_info ei[] = {
@@ -13338,6 +13706,11 @@ void proto_register_rtps(void) {
   proto_register_subtree_array(ett, array_length(ett));
   expert_rtps = expert_register_protocol(proto_rtps);
   expert_register_field_array(expert_rtps, ei, array_length(ei));
+
+  proto_rtcp = proto_register_protocol(
+                        "RTCP (DDS over TCP)",
+                        "RTCP-DDS",
+                        "rtcp_dds");
 
   /* Registers the control in the preference panel */
   rtps_module = prefs_register_protocol(proto_rtps, NULL);
@@ -13378,6 +13751,7 @@ void proto_register_rtps(void) {
   discovered_tcp_participants = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), hash_by_guid, compare_by_guid);
   /* In order to get this dissector in LUA (aka "chained-dissector") */
   register_dissector("rtps", dissect_simple_rtps, proto_rtps);
+  register_dissector("rtcp_dds", dissect_rtcp, proto_rtcp);
 
   reassembly_table_register(&rtps_reassembly_table,
       &addresses_reassembly_table_functions);
@@ -13388,6 +13762,7 @@ void proto_reg_handoff_rtps(void) {
   heur_dissector_add("rtitcp", dissect_rtps_rtitcp, "RTPS over RTITCP", "rtps_rtitcp", proto_rtps, HEURISTIC_ENABLE);
   heur_dissector_add("udp", dissect_rtps_udp, "RTPS over UDP", "rtps_udp", proto_rtps, HEURISTIC_ENABLE);
   heur_dissector_add("tcp", dissect_rtps_tcp, "RTPS over TCP", "rtps_tcp", proto_rtps, HEURISTIC_ENABLE);
+  heur_dissector_add("tcp", dissect_rtcp, "DDS over TCP", "rtcp_dds", proto_rtcp, HEURISTIC_ENABLE);
 }
 
 /*
