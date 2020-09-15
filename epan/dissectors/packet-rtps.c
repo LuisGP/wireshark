@@ -3,6 +3,8 @@
  *
  * Routines for Real-Time Publish-Subscribe Protocol (RTPS) dissection
  *
+ * (c) 2020 Copyright, Proyectos y Sistemas de Mantenimiento SL (eProsima).
+ *
  * (c) 2005-2014 Copyright, Real-Time Innovations, Inc.
  * Real-Time Innovations, Inc.
  * 232 East Java Drive
