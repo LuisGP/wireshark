@@ -52,8 +52,9 @@
 #include <epan/addr_resolv.h>
 #include <epan/reassemble.h>
 #include "zlib.h"
-#include <stdio.h>
+//#include <stdio.h>
 #include <epan/tvbuff-int.h>
+#include "packet-tcp.h"
 void proto_register_rtps(void);
 void proto_reg_handoff_rtps(void);
 
@@ -11021,7 +11022,14 @@ static gboolean dissect_rtcp_offset(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   return result;
 }
 
-static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+static guint
+get_rtcp_message_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data _U_)
+{
+    gint length = tvb_get_gint32(tvb, offset + 4, ENC_LITTLE_ENDIAN);
+    return (length > 0) ? (guint)length : 0;
+}
+
+static gboolean dissect_rtcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     gint offset = 0;
     gboolean result = TRUE;
@@ -11033,6 +11041,13 @@ static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     }
     //printf("FIN [R=%d; O=%d]\n\n", result, offset);
     return result;
+}
+
+static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+{
+    // Ensure at least this RTCP packet is complete
+    tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 8, get_rtcp_message_len, dissect_rtcp_message, data);
+    return tvb_captured_length(tvb) == tvb->reported_length;
 }
 
 static gboolean dissect_rtps_rtitcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
