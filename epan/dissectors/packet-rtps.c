@@ -517,6 +517,7 @@ static int hf_rtcp_magic                        = -1;
 static int hf_rtcp_length                       = -1;
 static int hf_rtcp_crc                          = -1;
 static int hf_rtcp_port                         = -1;
+static int hf_rtcp_payload_encapsulation        = -1;
 static int hf_rtcp_response_code                = -1;
 static int hf_rtcp_cpm_length                   = -1;
 static int hf_rtcp_transaction_id               = -1;
@@ -725,6 +726,9 @@ static const value_string app_kind_vals[] = {
 static const value_string rtps_locator_kind_vals[] = {
   { LOCATOR_KIND_UDPV4,        "LOCATOR_KIND_UDPV4" },
   { LOCATOR_KIND_UDPV6,        "LOCATOR_KIND_UDPV6" },
+  { LOCATOR_KIND_TCPV4,        "LOCATOR_KIND_TCPV4" },
+  { LOCATOR_KIND_TCPV6,        "LOCATOR_KIND_TCPV6" },
+  { LOCATOR_KIND_SHM,          "LOCATOR_KIND_SHM" },
   { LOCATOR_KIND_INVALID,      "LOCATOR_KIND_INVALID" },
   { LOCATOR_KIND_DTLS,         "LOCATOR_KIND_DTLS" },
   { LOCATOR_KIND_TCPV4_LAN,    "LOCATOR_KIND_TCPV4_LAN" },
@@ -2101,6 +2105,7 @@ gint rtps_util_add_locator_t(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
                  tvb_ip_to_str(tvb, offset + 20), port);
       break;
     }
+    case LOCATOR_KIND_TCPV4:
     case LOCATOR_KIND_TCPV4_LAN:
     case LOCATOR_KIND_TCPV4_WAN:
     case LOCATOR_KIND_TLSV4_LAN:
@@ -2128,6 +2133,7 @@ gint rtps_util_add_locator_t(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
         }
       break;
     }
+    case LOCATOR_KIND_SHM:
     case LOCATOR_KIND_SHMEM: {
       guint32 hostId;
       ti = proto_tree_add_item_ret_int(locator_tree, hf_rtps_locator_port, tvb, offset+4, 4, encoding, &port);
@@ -10805,12 +10811,16 @@ static gboolean add_response_code(proto_tree *tree, guint value)
     return TRUE;
 }
 
-static gboolean dissect_rtcp_bind_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint16 length)
+static gboolean dissect_rtcp_bind_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
     (void)pinfo;
     proto_tree *sub_tree;
-    sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Bind Connection Request");
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 28, 0, &sub_tree, "Bind Connection Request");
+    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length
     rtps_util_add_protocol_version(sub_tree, tvb, offset);
+    rtps_util_add_vendor_id(sub_tree, tvb, offset + 2);
+    rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset + 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
     return TRUE;
 }
 
@@ -10820,6 +10830,16 @@ static gboolean dissect_rtcp_bind_rep(tvbuff_t *tvb, packet_info *pinfo, proto_t
     (void)pinfo;
     (void)tree;
     (void)offset;
+    proto_tree *item;
+    proto_tree *sub_tree;
+    // TODO review...
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 28, 0, &sub_tree, "Bind Connection Response");
+    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length
+    guint value = tvb_get_guint32(tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
+    item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
+    rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset + 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
     return TRUE;
 }
 
@@ -10827,9 +10847,13 @@ static gboolean dissect_rtcp_port_req(tvbuff_t *tvb, packet_info *pinfo, proto_t
 {
     (void)pinfo;
     proto_tree *sub_tree;
-    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 2, 0, &sub_tree, "Open Logical Port Request");
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 12, 0, &sub_tree, "Open Logical Port Request");
     //proto_tree_add_item(sub_tree, hf_rtcp_request_kind, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-    proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset+10, 2, ENC_LITTLE_ENDIAN);
+    // Payload OpenLogicalPort uint16.
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    //proto_tree_add_item(sub_tree, hf_rtcp_length, tvb, offset+2, 4, ENC_LITTLE_ENDIAN);
+    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset+10, 2, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
     return TRUE;
 }
 
@@ -10903,7 +10927,7 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
 {
     guint8 kind = tvb_get_guint8(tvb, offset);
     guint8 flags = tvb_get_guint8(tvb, offset+1);
-    guint16 length = tvb_get_guint16(tvb, offset+2, ENC_NA);
+    //guint16 length = tvb_get_guint16(tvb, offset+2, ENC_NA);
     //guint32 id1 = tvb_get_guint32(tvb, 4, ENC_NA);
     //guint32 id2 = tvb_get_guint32(tvb, 8, ENC_NA);
     //guint32 id3 = tvb_get_guint32(tvb, 12, ENC_NA);
@@ -10924,7 +10948,7 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     case BIND_CONNECTION_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_REQUEST");
         proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_REQUEST");
-        return dissect_rtcp_bind_req(tvb, pinfo, sub_tree, offset, length);
+        return dissect_rtcp_bind_req(tvb, pinfo, sub_tree, offset);
     case BIND_CONNECTION_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_RESPONSE");
         proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_RESPONSE");
@@ -13586,6 +13610,16 @@ void proto_register_rtps(void) {
         NULL,
         0,
         "RTCP Logical Port",
+        HFILL }
+    },
+    { &hf_rtcp_payload_encapsulation, {
+        "Encapsulation",
+        "rtcp.payload.encapsulation",
+        FT_UINT16,
+        BASE_DEC,
+        NULL,
+        0,
+        "RTCP Payload encapsulation",
         HFILL }
     },
     { &hf_rtcp_flag_endianness, {

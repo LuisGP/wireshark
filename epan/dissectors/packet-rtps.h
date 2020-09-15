@@ -595,6 +595,9 @@ static dissector_table_t rtps_type_name_table;
 #define LOCATOR_KIND_RESERVED           (0)
 #define LOCATOR_KIND_UDPV4              (1)
 #define LOCATOR_KIND_UDPV6              (2)
+#define LOCATOR_KIND_TCPV4              (4)
+#define LOCATOR_KIND_TCPV6              (8)
+#define LOCATOR_KIND_SHM                (16)
 /* Vendor specific - rti */
 #define LOCATOR_KIND_DTLS               (6)
 #define LOCATOR_KIND_TCPV4_LAN          (8)
