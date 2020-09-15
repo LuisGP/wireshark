@@ -52,6 +52,8 @@
 #include <epan/addr_resolv.h>
 #include <epan/reassemble.h>
 #include "zlib.h"
+#include <stdio.h>
+#include <epan/tvbuff-int.h>
 void proto_register_rtps(void);
 void proto_reg_handoff_rtps(void);
 
@@ -4863,7 +4865,7 @@ static gint rtps_util_add_rti_service_request(proto_tree * tree, packet_info *pi
 static gboolean dissect_parameter_sequence_rti_dds(proto_tree *rtps_parameter_tree, packet_info *pinfo, tvbuff_t *tvb,
   proto_item *parameter_item, proto_item * param_len_item, gint offset,
   const guint encoding, int param_length, guint16 parameter, type_mapping * type_mapping_object,
-  gboolean is_inline_qos, guint vendor_id) {
+  gboolean is_inline_qos, guint vendor_id, gboolean rtcp) {
 
   switch(parameter) {
 
@@ -5336,7 +5338,7 @@ static gboolean dissect_parameter_sequence_rti_dds(proto_tree *rtps_parameter_tr
         ENSURE_LENGTH(4);
         proto_tree_add_item(rtps_parameter_tree, hf_rtps_domain_id, tvb, offset, 4, encoding);
         /* If using TCP we need to store the information of the domainId for that participant guid */
-        if (pinfo->ptype == PT_TCP) {
+        if (pinfo->ptype == PT_TCP && !rtcp) {
           /* Each packet stores its participant guid in the private table. This is done in dissect_rtps */
           endpoint_guid *participant_guid = (endpoint_guid*)g_hash_table_lookup(pinfo->private_table,
               (gconstpointer)RTPS_TCPMAP_DOMAIN_ID_KEY_STR);
@@ -6860,7 +6862,7 @@ static gboolean dissect_parameter_sequence_v2(proto_tree *rtps_parameter_tree, p
 static gint dissect_parameter_sequence(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     gint offset, const guint encoding, guint size, const char *label,
     guint16 version, guint32 *pStatusInfo, guint16 vendor_id,
-    gboolean is_inline_qos, coherent_set_entity_info *coherent_set_entity_info_object) {
+    gboolean is_inline_qos, coherent_set_entity_info *coherent_set_entity_info_object, gboolean rtcp) {
 
   proto_item *ti, *param_item, *param_len_item = NULL;
   proto_tree *rtps_parameter_sequence_tree, *rtps_parameter_tree;
@@ -7016,7 +7018,7 @@ static gint dissect_parameter_sequence(proto_tree *tree, packet_info *pinfo, tvb
       case RTPS_VENDOR_RTI_DDS:
       case RTPS_VENDOR_RTI_DDS_MICRO: {
         dissect_parameter_sequence_rti_dds(rtps_parameter_tree, pinfo, tvb,
-            param_item, param_len_item, offset, encoding, param_length, parameter, type_mapping_object, is_inline_qos, vendor_id);
+            param_item, param_len_item, offset, encoding, param_length, parameter, type_mapping_object, is_inline_qos, vendor_id, rtcp);
         break;
       }
       case RTPS_VENDOR_TOC: {
@@ -7244,7 +7246,7 @@ static void dissect_parametrized_serialized_data(proto_tree *tree, tvbuff_t *tvb
  */
 static void dissect_serialized_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, gint offset,
                         int  size, const char *label, guint16 vendor_id, gboolean is_discovery_data,
-                        endpoint_guid * guid, gint32 frag_number /* -1 if no fragmentation */) {
+                        endpoint_guid * guid, gint32 frag_number /* -1 if no fragmentation */, gboolean rtcp) {
   proto_item *ti;
   proto_tree *rtps_parameter_sequence_tree;
   guint16 encapsulation_id;
@@ -7311,7 +7313,7 @@ static void dissect_serialized_data(proto_tree *tree, packet_info *pinfo, tvbuff
       case ENCAPSULATION_PL_CDR_BE:
           if (is_discovery_data) {
               dissect_parameter_sequence(rtps_parameter_sequence_tree, pinfo, tvb, offset,
-                  encapsulation_encoding, size, "serializedData", 0x0200, NULL, vendor_id, FALSE, NULL);
+                  encapsulation_encoding, size, "serializedData", 0x0200, NULL, vendor_id, FALSE, NULL, rtcp);
           } else if (frag_number != NOT_A_FRAGMENT) {
               /* fragments should be dissected as raw bytes (not parametrized) */
               proto_tree_add_item(rtps_parameter_sequence_tree, hf_rtps_issue_data, tvb,
@@ -7574,7 +7576,7 @@ void dissect_PAD(tvbuff_t *tvb,
 /* *                               D A T A                               * */
 /* *********************************************************************** */
 static void dissect_DATA_v1(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
-                const guint encoding, int octets_to_next_header, proto_tree *tree) {
+                const guint encoding, int octets_to_next_header, proto_tree *tree, gboolean rtcp) {
   /* RTPS 1.0/1.1:
    * 0...2...........7...............15.............23...............31
    * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -7726,7 +7728,7 @@ static void dissect_DATA_v1(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset,
                         encoding, octets_to_next_header, "inlineQos",
-                        0x0102, NULL, 0, is_inline_qos, NULL);
+                        0x0102, NULL, 0, is_inline_qos, NULL, rtcp);
   }
 
   /* SerializedData */
@@ -7734,7 +7736,7 @@ static void dissect_DATA_v1(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
     if (is_builtin_entity) {
       dissect_parameter_sequence(tree, pinfo, tvb, offset,
                         encoding, octets_to_next_header, "serializedData",
-                        0x0102, NULL, 0, FALSE, NULL);
+                        0x0102, NULL, 0, FALSE, NULL, rtcp);
     } else {
       proto_tree_add_item(tree, hf_rtps_issue_data, tvb, offset,
                         octets_to_next_header - (offset - old_offset) + 4,
@@ -7745,7 +7747,7 @@ static void dissect_DATA_v1(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
 
 static void dissect_DATA_v2(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                             const guint encoding, int octets_to_next_header, proto_tree *tree,
-                            guint16 vendor_id, endpoint_guid *guid) {
+                            guint16 vendor_id, endpoint_guid *guid, gboolean rtcp) {
   /*
    *
    * 0...2...........7...............15.............23...............31
@@ -7847,7 +7849,7 @@ static void dissect_DATA_v2(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL);
+                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL, rtcp);
   }
 
   /* SerializedData */
@@ -7856,14 +7858,14 @@ static void dissect_DATA_v2(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
         (((wid & 0xc2) == 0xc2) || ((wid & 0xc3) == 0xc3)) ? TRUE : FALSE;
     dissect_serialized_data(tree, pinfo, tvb, offset,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "serializedData", vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT);
+                        "serializedData", vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT, rtcp);
   }
   append_status_info(pinfo, wid, status_info);
 }
 
 static void dissect_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                 const guint encoding, int octets_to_next_header, proto_tree *tree,
-                guint16 vendor_id, endpoint_guid *guid) {
+                guint16 vendor_id, endpoint_guid *guid, gboolean rtcp) {
   /*
    * 0...2...........7...............15.............23...............31
    * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -7978,7 +7980,7 @@ static void dissect_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL);
+                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL, rtcp);
   }
 
   /* SerializedData */
@@ -7987,7 +7989,7 @@ static void dissect_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
         (((wid & 0xc2) == 0xc2) || ((wid & 0xc3) == 0xc3)) ? TRUE : FALSE;
     dissect_serialized_data(tree, pinfo, tvb, offset,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "serializedData", vendor_id, from_builtin_writer, NULL, (gint32)frag_number);
+                        "serializedData", vendor_id, from_builtin_writer, NULL, (gint32)frag_number, rtcp);
   }
 }
 
@@ -7997,7 +7999,7 @@ static void dissect_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
 /* *********************************************************************** */
 static void dissect_NOKEY_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                 const guint encoding, int octets_to_next_header, proto_tree *tree,
-                guint16 version, guint16 vendor_id) {
+                guint16 version, guint16 vendor_id, gboolean rtcp) {
   /* RTPS 1.0/1.1:
    * 0...2...........7...............15.............23...............31
    * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -8109,7 +8111,7 @@ static void dissect_NOKEY_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, g
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset,
                         encoding, octets_to_next_header, "inlineQos",
-                        version, NULL, vendor_id, is_inline_qos, NULL);
+                        version, NULL, vendor_id, is_inline_qos, NULL, rtcp);
 
   }
 
@@ -8125,7 +8127,7 @@ static void dissect_NOKEY_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, g
         (((wid & 0xc2) == 0xc2) || ((wid & 0xc3) == 0xc3)) ? TRUE : FALSE;
     dissect_serialized_data(tree, pinfo, tvb, offset,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "serializedData", vendor_id, from_builtin_writer, NULL, NOT_A_FRAGMENT);
+                        "serializedData", vendor_id, from_builtin_writer, NULL, NOT_A_FRAGMENT, rtcp);
   }
 
 }
@@ -8135,7 +8137,7 @@ static void dissect_NOKEY_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, g
 /* *********************************************************************** */
 static void dissect_NOKEY_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset,
                 guint8 flags, const guint encoding, int octets_to_next_header, proto_tree *tree,
-                guint16 vendor_id) {
+                guint16 vendor_id, gboolean rtcp) {
   /*
    * 0...2...........7...............15.............23...............31
    * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -8221,7 +8223,7 @@ static void dissect_NOKEY_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offs
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL);
+                        "inlineQos", 0x0200, NULL, vendor_id, is_inline_qos, NULL, rtcp);
   }
 
   /* SerializedData */
@@ -8230,7 +8232,7 @@ static void dissect_NOKEY_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offs
       (((wid & 0xc2) == 0xc2) || ((wid & 0xc3) == 0xc3)) ? TRUE : FALSE;
     dissect_serialized_data(tree, pinfo, tvb,offset,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "serializedData", vendor_id, from_builtin_writer, NULL, (gint32)frag_number);
+                        "serializedData", vendor_id, from_builtin_writer, NULL, (gint32)frag_number, rtcp);
   }
 }
 
@@ -8917,7 +8919,7 @@ static void dissect_HEARTBEAT_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offse
 /* *********************************************************************** */
 static void dissect_RTPS_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                 guint encoding, int octets_to_next_header, proto_tree *tree,
-                guint16 vendor_id, gboolean is_session, endpoint_guid *guid) {
+                guint16 vendor_id, gboolean is_session, endpoint_guid *guid, gboolean rtcp) {
   /*
    *
    * 0...2...........7...............15.............23...............31
@@ -9039,7 +9041,7 @@ static void dissect_RTPS_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "inlineQos", 0x0200, &status_info, vendor_id, is_inline_qos, &coherent_set_entity_info_object);
+                        "inlineQos", 0x0200, &status_info, vendor_id, is_inline_qos, &coherent_set_entity_info_object, rtcp);
   }
 
   /* SerializedData */
@@ -9264,7 +9266,7 @@ static void dissect_RTPS_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
       /* At the end still dissect the rest of the bytes as raw data */
       dissect_serialized_data(tree, pinfo, tvb, offset,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        label, vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT);
+                        label, vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT, rtcp);
     }
   }
   rtps_util_detect_coherent_set_end_empty_data_case(&coherent_set_entity_info_object);
@@ -9276,7 +9278,7 @@ static void dissect_RTPS_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
 /* *********************************************************************** */
 static void dissect_RTPS_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                 const guint encoding, int octets_to_next_header, proto_tree *tree,
-                guint16 vendor_id, endpoint_guid *guid) {
+                guint16 vendor_id, endpoint_guid *guid, gboolean rtcp) {
   /*
    *
    * 0...2...........7...............15.............23...............31
@@ -9383,7 +9385,7 @@ static void dissect_RTPS_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offse
     gboolean is_inline_qos = TRUE;
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "inlineQos", 0x0200, &status_info, vendor_id, is_inline_qos, &coherent_set_entity_info_object);
+                        "inlineQos", 0x0200, &status_info, vendor_id, is_inline_qos, &coherent_set_entity_info_object, rtcp);
   }
 
   /* SerializedData */
@@ -9431,12 +9433,12 @@ static void dissect_RTPS_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offse
         if (new_tvb) {
             g_snprintf(label, 19, "reassembled sample");
             dissect_serialized_data(tree, pinfo, new_tvb, 0,
-                sample_size, label, vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT);
+                sample_size, label, vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT, rtcp);
             break;
         } else {
             g_snprintf(label, 15, "fragment [%d]", frag_index_in_submessage);
             dissect_serialized_data(tree, pinfo, tvb, offset + (frag_index_in_submessage * frag_size),
-                this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number);
+                this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number, rtcp);
         }
         frag_index_in_submessage++;
       }
@@ -9448,7 +9450,7 @@ static void dissect_RTPS_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offse
         fragment_offset = frag_index_in_submessage * frag_size;
         g_snprintf(label, 20, "fragment [%d]", frag_index_in_submessage);
         dissect_serialized_data(tree, pinfo, tvb, offset + fragment_offset,
-            this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number);
+            this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number, rtcp);
         frag_index_in_submessage++;
         }
       append_status_info(pinfo, wid, status_info);
@@ -9462,7 +9464,7 @@ static void dissect_RTPS_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offse
 /* *********************************************************************** */
 static void dissect_RTPS_DATA_BATCH(tvbuff_t *tvb, packet_info *pinfo, gint offset,
                 guint8 flags, const guint encoding, int octets_to_next_header,
-                proto_tree *tree, guint16 vendor_id, endpoint_guid *guid) {
+                proto_tree *tree, guint16 vendor_id, endpoint_guid *guid, gboolean rtcp) {
   /*
    *
    * 0...2...........7...............15.............23...............31
@@ -9611,7 +9613,7 @@ static void dissect_RTPS_DATA_BATCH(tvbuff_t *tvb, packet_info *pinfo, gint offs
   if ((flags & FLAG_RTPS_DATA_BATCH_Q) != 0) {
     offset = dissect_parameter_sequence(tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "batchInlineQos", 0x0200, &status_info, vendor_id, FALSE, NULL);
+                        "batchInlineQos", 0x0200, &status_info, vendor_id, FALSE, NULL, rtcp);
   }
 
   /* octetsToSLEncapsulationId */
@@ -9696,7 +9698,7 @@ static void dissect_RTPS_DATA_BATCH(tvbuff_t *tvb, packet_info *pinfo, gint offs
       if ((flags2 & FLAG_SAMPLE_INFO_Q) != 0) {
         offset = dissect_parameter_sequence(si_tree, pinfo, tvb, offset, encoding,
                         octets_to_next_header - (offset - old_offset) + 4,
-                        "sampleInlineQos", 0x0200, &status_info, vendor_id, FALSE, NULL);
+                        "sampleInlineQos", 0x0200, &status_info, vendor_id, FALSE, NULL, rtcp);
       }
       proto_item_set_len(ti, offset - offset_begin_sampleinfo);
       sample_info_count++;
@@ -10343,17 +10345,17 @@ static void dissect_SECURE_POSTFIX(tvbuff_t *tvb, packet_info *pinfo _U_, gint o
 static gboolean dissect_rtps_submessage_v2(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
                                            const guint encoding, guint8 submessageId, guint16 vendor_id, gint octets_to_next_header,
                                            proto_tree *rtps_submessage_tree, proto_item *submessage_item,
-                                           endpoint_guid * guid, endpoint_guid * dst_guid)
+                                           endpoint_guid * guid, endpoint_guid * dst_guid, gboolean rtcp)
 {
   switch (submessageId)
   {
     case SUBMESSAGE_DATA_FRAG:
       dissect_DATA_FRAG(tvb, pinfo, offset, flags, encoding,
-          octets_to_next_header, rtps_submessage_tree, vendor_id, guid);
+          octets_to_next_header, rtps_submessage_tree, vendor_id, guid, rtcp);
       break;
 
     case SUBMESSAGE_NOKEY_DATA_FRAG:
-      dissect_NOKEY_DATA_FRAG(tvb, pinfo, offset, flags, encoding, octets_to_next_header, rtps_submessage_tree, vendor_id);
+      dissect_NOKEY_DATA_FRAG(tvb, pinfo, offset, flags, encoding, octets_to_next_header, rtps_submessage_tree, vendor_id, rtcp);
       break;
 
     case SUBMESSAGE_NACK_FRAG:
@@ -10393,17 +10395,17 @@ static gboolean dissect_rtps_submessage_v2(tvbuff_t *tvb, packet_info *pinfo, gi
     case SUBMESSAGE_RTPS_DATA_SESSION:
     case SUBMESSAGE_RTPS_DATA:
       dissect_RTPS_DATA(tvb, pinfo, offset, flags, encoding, octets_to_next_header,
-              rtps_submessage_tree, vendor_id, (submessageId == SUBMESSAGE_RTPS_DATA_SESSION), guid);
+              rtps_submessage_tree, vendor_id, (submessageId == SUBMESSAGE_RTPS_DATA_SESSION), guid, rtcp);
       break;
 
     case SUBMESSAGE_RTPS_DATA_FRAG:
       dissect_RTPS_DATA_FRAG(tvb, pinfo, offset, flags, encoding, octets_to_next_header,
-                                rtps_submessage_tree, vendor_id, guid);
+                                rtps_submessage_tree, vendor_id, guid, rtcp);
       break;
 
     case SUBMESSAGE_RTPS_DATA_BATCH:
       dissect_RTPS_DATA_BATCH(tvb, pinfo, offset, flags, encoding, octets_to_next_header,
-                                rtps_submessage_tree, vendor_id, guid);
+                                rtps_submessage_tree, vendor_id, guid, rtcp);
       break;
 
     case SUBMESSAGE_RTI_CRC:
@@ -10436,7 +10438,7 @@ static gboolean dissect_rtps_submessage_v2(tvbuff_t *tvb, packet_info *pinfo, gi
 static gboolean dissect_rtps_submessage_v1(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags, const guint encoding,
                                            guint8 submessageId, guint16 version, guint16 vendor_id, gint octets_to_next_header,
                                            proto_tree *rtps_submessage_tree, proto_item *submessage_item,
-                                           endpoint_guid * guid, endpoint_guid * dst_guid)
+                                           endpoint_guid * guid, endpoint_guid * dst_guid, gboolean rtcp)
 {
   switch (submessageId)
   {
@@ -10447,16 +10449,16 @@ static gboolean dissect_rtps_submessage_v1(tvbuff_t *tvb, packet_info *pinfo, gi
     case SUBMESSAGE_DATA:
       if (version < 0x0200) {
         dissect_DATA_v1(tvb, pinfo, offset, flags, encoding,
-                octets_to_next_header, rtps_submessage_tree);
+                octets_to_next_header, rtps_submessage_tree, rtcp);
       } else {
         dissect_DATA_v2(tvb, pinfo, offset, flags, encoding,
-                octets_to_next_header, rtps_submessage_tree, vendor_id, guid);
+                octets_to_next_header, rtps_submessage_tree, vendor_id, guid, rtcp);
       }
       break;
 
     case SUBMESSAGE_NOKEY_DATA:
       dissect_NOKEY_DATA(tvb, pinfo, offset, flags, encoding, octets_to_next_header, rtps_submessage_tree,
-                         version, vendor_id);
+                         version, vendor_id, rtcp);
       break;
 
     case SUBMESSAGE_ACKNACK:
@@ -10505,7 +10507,7 @@ static gboolean dissect_rtps_submessage_v1(tvbuff_t *tvb, packet_info *pinfo, gi
 /***************************************************************************/
 /* The main packet dissector function
  */
-static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+static gboolean dissect_rtps_length(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, gint length)
 {
   proto_item   *ti;
   proto_tree   *rtps_tree, *rtps_submessage_tree;
@@ -10519,6 +10521,8 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   endpoint_guid guid;
   endpoint_guid dst_guid;
   guint32 magic_number;
+  gboolean rtcp = length > 0; // Avoid some RTI-TCP checks
+  gint initial_offset = offset;
   gchar domain_id_str[RTPS_UNKNOWN_DOMAIN_ID_STR_LEN] = RTPS_UNKNOWN_DOMAIN_ID_STR;
   /* Check 'RTPS' signature:
    * A header is invalid if it has less than 16 octets
@@ -10544,7 +10548,7 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   col_clear(pinfo->cinfo, COL_INFO);
 
   /* create display subtree for the protocol */
-  ti = proto_tree_add_item(tree, proto_rtps, tvb, offset, -1, ENC_NA);
+  ti = proto_tree_add_item(tree, proto_rtps, tvb, offset, length, ENC_NA);
   rtps_tree = proto_item_add_subtree(ti, ett_rtps);
 
   /* magic */
@@ -10575,7 +10579,7 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
      * For that operation the member fields_present is not required and is not affected by
      * its changes.
      */
-    if (pinfo->private_table == NULL && pinfo->ptype == PT_TCP) {
+    if (pinfo->private_table == NULL && pinfo->ptype == PT_TCP && !rtcp) {
       pinfo->private_table = g_hash_table_new_full(g_str_hash, g_str_equal,
         g_free, g_free);
     }
@@ -10633,13 +10637,13 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
       /* If using TCP domainId cannot deduced from the port. It must be taken from the participant
        * discovery packets or Unknown.
        */
-      domain_id = (pinfo->ptype == PT_TCP) ?
+      domain_id = (pinfo->ptype == PT_TCP && !rtcp) ?
         get_domain_id_from_tcp_discovered_participants(discovered_tcp_participants, &guid) :
         ((pinfo->destport - PORT_BASE)/10) % 100;
       participant_idx = (pinfo->destport - PORT_BASE) / 1000;
       nature    = (pinfo->destport % 10);
     } else {
-      domain_id = (pinfo->ptype == PT_TCP) ?
+      domain_id = (pinfo->ptype == PT_TCP && !rtcp) ?
         get_domain_id_from_tcp_discovered_participants(discovered_tcp_participants, &guid) :
         (pinfo->destport - PORT_BASE) / 250;
       doffset = (pinfo->destport - PORT_BASE - domain_id * 250);
@@ -10690,7 +10694,7 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   /* offset behind RTPS's Header (need to be set in case tree=NULL)*/
   offset += ((version < 0x0200) ? 16 : 20);
 
-  while (tvb_reported_length_remaining(tvb, offset) > 0) {
+  while (tvb_reported_length_remaining(tvb, offset) > 0 && (offset - initial_offset) < length) {
     submessageId = tvb_get_guint8(tvb, offset);
 
     if (version < 0x0200) {
@@ -10746,11 +10750,11 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     if (!dissect_rtps_submessage_v1(tvb, pinfo, offset, flags, encoding,
                                     submessageId, version, vendor_id,
                                     octets_to_next_header, rtps_submessage_tree,
-                                    ti, &guid, &dst_guid)) {
+                                    ti, &guid, &dst_guid, rtcp)) {
       if ((version < 0x0200) ||
           !dissect_rtps_submessage_v2(tvb, pinfo, offset, flags, encoding, submessageId,
                                       vendor_id, octets_to_next_header, rtps_submessage_tree,
-                                      ti, &guid, &dst_guid)) {
+                                      ti, &guid, &dst_guid, rtcp)) {
         proto_tree_add_uint(rtps_submessage_tree, hf_rtps_sm_flags,
                               tvb, offset + 1, 1, flags);
         proto_tree_add_uint(rtps_submessage_tree,
@@ -10767,7 +10771,12 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   /* TODO: What to do with it? */
   return TRUE;
 
-}  /* dissect_rtps(...) */
+}  /* dissect_rtps_length(...) */
+
+static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    return dissect_rtps_length(tvb, pinfo, tree, offset, -1);
+}
 
 static gboolean dissect_rtps_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
@@ -10955,17 +10964,17 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     }
 }
 
-static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+static gboolean dissect_rtcp_offset(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_, gint* offset)
 {
   guint32 magic_number;
 
   /* Check 'RTCP' signature:
    * A header is invalid if it has less than 16 octets
    */
-  if (tvb_reported_length_remaining(tvb, 0) < 16)
+  if (tvb_reported_length_remaining(tvb, *offset) < 16)
     return FALSE;
 
-  magic_number = tvb_get_ntohl(tvb, 0);
+  magic_number = tvb_get_ntohl(tvb, *offset);
   if (magic_number != RTCP_MAGIC_NUMBER) {
       return FALSE;
   }
@@ -10976,19 +10985,20 @@ static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   col_clear(pinfo->cinfo, COL_INFO);
 
   /* create display subtree for the protocol */
-  ti = proto_tree_add_item(tree, proto_rtcp, tvb, 0, -1, ENC_NA);
+  gint length = tvb_get_gint32(tvb, *offset + 4, ENC_LITTLE_ENDIAN);
+  ti = proto_tree_add_item(tree, proto_rtcp, tvb, *offset, length, ENC_NA);
   rtcp_tree = proto_item_add_subtree(ti, ett_rtcp);
   /* magic */
-  proto_tree_add_item(rtcp_tree, hf_rtcp_magic, tvb, 0, 4, ENC_NA | ENC_ASCII);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_magic, tvb, *offset, 4, ENC_NA | ENC_ASCII);
 
   /* In RTCP the length is a CDR 32 bit unsigned integer at position 4.
    * It counts the RTCP Header and contents, but not possible RTPS packet.
    */
   //guint32 length = tvb_get_guint32(tvb, 4, ENC_LITTLE_ENDIAN);
-  proto_tree_add_item(rtcp_tree, hf_rtcp_length, tvb, 4, 4, ENC_LITTLE_ENDIAN);
-  proto_tree_add_item(rtcp_tree, hf_rtcp_crc, tvb, 8, 4, ENC_NA);
-  proto_tree_add_item(rtcp_tree, hf_rtcp_port, tvb, 12, 2, ENC_LITTLE_ENDIAN);
-  gint offset = 14; // RTCP + length + CRC + logicalPort
+  proto_tree_add_item(rtcp_tree, hf_rtcp_length, tvb, *offset + 4, 4, ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_crc, tvb, *offset + 8, 4, ENC_NA);
+  proto_tree_add_item(rtcp_tree, hf_rtcp_port, tvb, *offset + 12, 2, ENC_LITTLE_ENDIAN);
+  *offset += 14; // RTCP + length + CRC + logicalPort
 
   // Ctrl Msg Header...
   /* In RTCP the length is a CDR 16 bit unsigned integer at position 16.
@@ -10996,16 +11006,33 @@ static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
    */
   //guint16 tcp_len = tvb_get_ntohs(tvb, 2);
   //gint offset = tcp_len;
+  //gint length = (gint)tvb_get_ntohl(tvb, 4);
+  proto_item_append_text(rtcp_tree, "(%d)", length);
 
-
-  gboolean result = dissect_rtps(tvb, pinfo, rtcp_tree, offset);
+  length -= 14;
+  gboolean result = dissect_rtps_length(tvb, pinfo, rtcp_tree, *offset, length);
 
   if (!result)
   {
-      result = dissect_rtcp_ctrl_msg(tvb, pinfo, rtcp_tree, offset);
+      result = dissect_rtcp_ctrl_msg(tvb, pinfo, rtcp_tree, *offset);
   }
+  *offset += length;
 
   return result;
+}
+
+static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+{
+    gint offset = 0;
+    gboolean result = TRUE;
+    //printf("INICIO [L=%d]\n", tvb->length);
+    while (result && tvb_reported_length_remaining(tvb, offset) > 0)
+    {
+        result = dissect_rtcp_offset(tvb, pinfo, tree, data, &offset);
+        //printf("\t RTCP [R=%d; O=%d; T=%d]\n",result, offset, tvb_reported_length_remaining(tvb, offset));
+    }
+    //printf("FIN [R=%d; O=%d]\n\n", result, offset);
+    return result;
 }
 
 static gboolean dissect_rtps_rtitcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
