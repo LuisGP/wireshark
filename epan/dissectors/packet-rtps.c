@@ -10703,7 +10703,7 @@ static gboolean dissect_rtps_length(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   /* offset behind RTPS's Header (need to be set in case tree=NULL)*/
   offset += ((version < 0x0200) ? 16 : 20);
 
-  while (tvb_reported_length_remaining(tvb, offset) > 0 && (offset - initial_offset) < length) {
+  while ((tvb_reported_length_remaining(tvb, offset) > 0 && (length == -1 || (offset - initial_offset) < length))) {
     submessageId = tvb_get_guint8(tvb, offset);
 
     if (version < 0x0200) {
