@@ -10815,8 +10815,9 @@ static gboolean dissect_rtcp_bind_req(tvbuff_t *tvb, packet_info *pinfo, proto_t
 {
     (void)pinfo;
     proto_tree *sub_tree;
-    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 28, 0, &sub_tree, "Bind Connection Request");
-    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Bind Connection Request");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
     offset += 10; // Encoding+length
     rtps_util_add_protocol_version(sub_tree, tvb, offset);
     rtps_util_add_vendor_id(sub_tree, tvb, offset + 2);
@@ -10832,9 +10833,9 @@ static gboolean dissect_rtcp_bind_rep(tvbuff_t *tvb, packet_info *pinfo, proto_t
     (void)offset;
     proto_tree *item;
     proto_tree *sub_tree;
-    // TODO review...
-    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 28, 0, &sub_tree, "Bind Connection Response");
-    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Bind Connection Response");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
     offset += 10; // Encoding+length
     guint value = tvb_get_guint32(tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
     item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
@@ -10852,7 +10853,7 @@ static gboolean dissect_rtcp_port_req(tvbuff_t *tvb, packet_info *pinfo, proto_t
     // Payload OpenLogicalPort uint16.
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     //proto_tree_add_item(sub_tree, hf_rtcp_length, tvb, offset+2, 4, ENC_LITTLE_ENDIAN);
-    guint16 encoding = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
     proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset+10, 2, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
     return TRUE;
 }
@@ -10869,21 +10870,57 @@ static gboolean dissect_rtcp_port_rep(tvbuff_t *tvb, packet_info *pinfo, proto_t
     return TRUE;
 }
 
-static gboolean dissect_rtcp_check_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+static gboolean dissect_rtcp_check_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint16 length)
 {
     (void)tvb;
     (void)pinfo;
     (void)tree;
     (void)offset;
+    (void)length;
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Check Logical Ports Request");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length
+    guint32 count = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    //proto_item_append_text(sub_tree, " (%d)", length);
+    proto_tree * req_ports;
+    req_ports = proto_tree_add_subtree(sub_tree, tvb, offset, (count * 2) + 4, 0, &req_ports, "Requesting ports");
+    proto_item_append_text(req_ports, " (%d)", count);
+    offset += 4;
+    for (guint32 i = 0; i < count; ++i)
+    {
+        proto_tree_add_item(req_ports, hf_rtcp_port, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+    }
     return TRUE;
 }
 
-static gboolean dissect_rtcp_check_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+static gboolean dissect_rtcp_check_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint16 length)
 {
     (void)tvb;
     (void)pinfo;
     (void)tree;
     (void)offset;
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Check Logical Ports Response");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length
+    guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    proto_tree *item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
+    offset += 4;
+    guint32 count = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    proto_tree * req_ports;
+    req_ports = proto_tree_add_subtree(sub_tree, tvb, offset, (count * 2) + 4, 0, &req_ports, "Available ports");
+    proto_item_append_text(req_ports, " (%d)", count);
+    offset += 4;
+    for (guint32 i = 0; i < count; ++i)
+    {
+        proto_tree_add_item(req_ports, hf_rtcp_port, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+    }
     return TRUE;
 }
 
@@ -10893,6 +10930,7 @@ static gboolean dissect_rtcp_ka_req(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     (void)pinfo;
     (void)tree;
     (void)offset;
+    // To implement
     return TRUE;
 }
 
@@ -10902,6 +10940,7 @@ static gboolean dissect_rtcp_ka_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     (void)pinfo;
     (void)tree;
     (void)offset;
+    // To implement
     return TRUE;
 }
 
@@ -10911,6 +10950,12 @@ static gboolean dissect_rtcp_port_closed_req(tvbuff_t *tvb, packet_info *pinfo, 
     (void)pinfo;
     (void)tree;
     (void)offset;
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 12, 0, &sub_tree, "Logical Port Is Closed Request");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length
+    proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     return TRUE;
 }
 
@@ -10920,6 +10965,7 @@ static gboolean dissect_rtcp_unbind_req(tvbuff_t *tvb, packet_info *pinfo, proto
     (void)pinfo;
     (void)tree;
     (void)offset;
+    // Nothing to do here.
     return TRUE;
 }
 
@@ -10927,11 +10973,7 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
 {
     guint8 kind = tvb_get_guint8(tvb, offset);
     guint8 flags = tvb_get_guint8(tvb, offset+1);
-    //guint16 length = tvb_get_guint16(tvb, offset+2, ENC_NA);
-    //guint32 id1 = tvb_get_guint32(tvb, 4, ENC_NA);
-    //guint32 id2 = tvb_get_guint32(tvb, 8, ENC_NA);
-    //guint32 id3 = tvb_get_guint32(tvb, 12, ENC_NA);
-
+    guint16 length = tvb_get_guint16(tvb, offset+2, ENC_LITTLE_ENDIAN);
 
     proto_tree *sub_tree;
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, -1, 0, &sub_tree, "Control Protocol Message");
@@ -10941,7 +10983,9 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_tree_add_item(sub_tree, hf_rtcp_cpm_length, tvb, offset + 2, 2, ENC_LITTLE_ENDIAN);
     proto_tree_add_item(sub_tree, hf_rtcp_transaction_id, tvb, offset + 4, 12, ENC_NA);
 
+    // Skip until content.
     offset += 16;
+    length -= 16;
 
     switch (kind)
     {
@@ -10964,11 +11008,11 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     case CHECK_LOGICAL_PORT_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_REQUEST");
         proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_REQUEST");
-        return dissect_rtcp_check_req(tvb, pinfo, sub_tree, offset);
+        return dissect_rtcp_check_req(tvb, pinfo, sub_tree, offset, length);
     case CHECK_LOGICAL_PORT_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_RESPONSE");
         proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_RESPONSE");
-        return dissect_rtcp_check_rep(tvb, pinfo, sub_tree, offset);
+        return dissect_rtcp_check_rep(tvb, pinfo, sub_tree, offset, length);
     case KEEP_ALIVE_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "KEEP_ALIVE_REQUEST");
         proto_item_append_text(sub_tree, "(%s)", "KEEP_ALIVE_REQUEST");
@@ -11008,8 +11052,6 @@ static gboolean dissect_rtcp_offset(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
   proto_item *ti;
   proto_tree *rtcp_tree;
-  col_set_str(pinfo->cinfo, COL_PROTOCOL, "RTCP");
-  col_clear(pinfo->cinfo, COL_INFO);
 
   /* create display subtree for the protocol */
   gint length = tvb_get_gint32(tvb, *offset + 4, ENC_LITTLE_ENDIAN);
@@ -11060,6 +11102,7 @@ static gboolean dissect_rtcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     gint offset = 0;
     gboolean result = TRUE;
     //printf("INICIO [L=%d]\n", tvb->length);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "RTCP");
     while (result && tvb_reported_length_remaining(tvb, offset) > 0)
     {
         result = dissect_rtcp_offset(tvb, pinfo, tree, data, &offset);
@@ -11072,6 +11115,7 @@ static gboolean dissect_rtcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 static gboolean dissect_rtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     // Ensure at least this RTCP packet is complete
+    col_clear(pinfo->cinfo, COL_INFO);
     tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 8, get_rtcp_message_len, dissect_rtcp_message, data);
     return tvb_captured_length(tvb) == tvb->reported_length;
 }
