@@ -10554,7 +10554,10 @@ static gboolean dissect_rtps_length(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   dst_guid.fields_present = 0;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "RTPS");
-  col_clear(pinfo->cinfo, COL_INFO);
+  if (!rtcp)
+  {
+    col_clear(pinfo->cinfo, COL_INFO);
+  }
 
   /* create display subtree for the protocol */
   ti = proto_tree_add_item(tree, proto_rtps, tvb, offset, length, ENC_NA);
@@ -10944,7 +10947,13 @@ static gboolean dissect_rtcp_ka_req(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     (void)pinfo;
     (void)tree;
     (void)offset;
-    // To implement
+    // Not tested, disabled in Fast-DDS
+    proto_tree *sub_tree;
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Keep-Alive Request");
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
+    rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
     return TRUE;
 }
 
@@ -10954,7 +10963,13 @@ static gboolean dissect_rtcp_ka_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     (void)pinfo;
     (void)tree;
     (void)offset;
-    // To implement
+    // Not tested, disabled in Fast-DDS
+    proto_tree *sub_tree;
+    proto_tree *item;
+    guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    sub_tree = proto_tree_add_subtree(tree, tvb, offset, 4, 0, &sub_tree, "Keep-Alive Response");
+    item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
     return TRUE;
 }
 
