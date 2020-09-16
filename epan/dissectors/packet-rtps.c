@@ -10834,13 +10834,19 @@ static gboolean dissect_rtcp_bind_rep(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_tree *item;
     proto_tree *sub_tree;
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Bind Connection Response");
+    /// Response code should be serialized too...
+    guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
+    offset += 4;
+    ///
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
     offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
-    guint value = tvb_get_guint32(tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
-    item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
-    add_response_code(item, value);
-    rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset + 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
+    //guint value = tvb_get_guint32(tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
+    //item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
+    //add_response_code(item, value);
+    rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset /*+ 4*/, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
     return TRUE;
 }
 
@@ -10904,13 +10910,21 @@ static gboolean dissect_rtcp_check_rep(tvbuff_t *tvb, packet_info *pinfo, proto_
     (void)offset;
     proto_tree *sub_tree;
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Check Logical Ports Response");
-    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-    //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
+    /// ResponseCode should be serialized too...
     guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
     proto_tree *item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     add_response_code(item, value);
     offset += 4;
+    ///
+    proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
+    /*
+    guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
+    proto_tree *item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    add_response_code(item, value);
+    offset += 4;
+    */
     guint32 count = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
     proto_tree * req_ports;
     req_ports = proto_tree_add_subtree(sub_tree, tvb, offset, (count * 2) + 4, 0, &req_ports, "Available ports");
