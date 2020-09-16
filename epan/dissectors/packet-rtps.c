@@ -10818,7 +10818,7 @@ static gboolean dissect_rtcp_bind_req(tvbuff_t *tvb, packet_info *pinfo, proto_t
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Bind Connection Request");
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
     rtps_util_add_protocol_version(sub_tree, tvb, offset);
     rtps_util_add_vendor_id(sub_tree, tvb, offset + 2);
     rtps_util_add_locator_t(sub_tree, pinfo, tvb, offset + 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN, "Locator");
@@ -10836,7 +10836,7 @@ static gboolean dissect_rtcp_bind_rep(tvbuff_t *tvb, packet_info *pinfo, proto_t
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, 38, 0, &sub_tree, "Bind Connection Response");
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
     guint value = tvb_get_guint32(tvb, offset, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
     item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, encoding % 2 == 0 ? ENC_BIG_ENDIAN : ENC_LITTLE_ENDIAN);
     add_response_code(item, value);
@@ -10881,7 +10881,7 @@ static gboolean dissect_rtcp_check_req(tvbuff_t *tvb, packet_info *pinfo, proto_
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Check Logical Ports Request");
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
     guint32 count = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
     //proto_item_append_text(sub_tree, " (%d)", length);
     proto_tree * req_ports;
@@ -10906,7 +10906,7 @@ static gboolean dissect_rtcp_check_rep(tvbuff_t *tvb, packet_info *pinfo, proto_
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, length, 0, &sub_tree, "Check Logical Ports Response");
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
     guint value = tvb_get_guint32(tvb, offset, ENC_LITTLE_ENDIAN);
     proto_tree *item = proto_tree_add_item(sub_tree, hf_rtcp_response_code, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     add_response_code(item, value);
@@ -10954,7 +10954,7 @@ static gboolean dissect_rtcp_port_closed_req(tvbuff_t *tvb, packet_info *pinfo, 
     sub_tree = proto_tree_add_subtree(tree, tvb, offset, 12, 0, &sub_tree, "Logical Port Is Closed Request");
     proto_tree_add_item(sub_tree, hf_rtcp_payload_encapsulation, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     //guint16 encoding = 1; //tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
-    offset += 10; // Encoding+length
+    offset += 10; // Encoding+length+[SerializedEncoding+SerializedOptions] This may change...
     proto_tree_add_item(sub_tree, hf_rtcp_port, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     return TRUE;
 }
@@ -10986,6 +10986,10 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     // Skip until content.
     offset += 16;
     length -= 16;
+
+    // TODO: If using the Union...
+    // Skip the disciminator, or check it against "kind"?
+    // offset += 4;
 
     switch (kind)
     {
