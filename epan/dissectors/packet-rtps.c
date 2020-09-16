@@ -11024,43 +11024,53 @@ static gboolean dissect_rtcp_ctrl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
     {
     case BIND_CONNECTION_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "BIND_CONNECTION_REQUEST");
+        proto_item_append_text(tree, " (%s)", "BIND_CONNECTION_REQUEST");
         return dissect_rtcp_bind_req(tvb, pinfo, sub_tree, offset);
     case BIND_CONNECTION_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "BIND_CONNECTION_RESPONSE");
-        proto_item_append_text(sub_tree, "(%s)", "BIND_CONNECTION_RESPONSE");
+        proto_item_append_text(sub_tree, " (%s)", "BIND_CONNECTION_RESPONSE");
+        proto_item_append_text(tree, " (%s)", "BIND_CONNECTION_RESPONSE");
         return dissect_rtcp_bind_rep(tvb, pinfo, sub_tree, offset);
     case OPEN_LOGICAL_PORT_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "OPEN_LOGICAL_PORT_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "OPEN_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "OPEN_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(tree, " (%s)", "OPEN_LOGICAL_PORT_REQUEST");
         return dissect_rtcp_port_req(tvb, pinfo, sub_tree, offset);
     case OPEN_LOGICAL_PORT_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "OPEN_LOGICAL_PORT_RESPONSE");
-        proto_item_append_text(sub_tree, "(%s)", "OPEN_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(sub_tree, " (%s)", "OPEN_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(tree, " (%s)", "OPEN_LOGICAL_PORT_RESPONSE");
         return dissect_rtcp_port_rep(tvb, pinfo, sub_tree, offset);
     case CHECK_LOGICAL_PORT_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "CHECK_LOGICAL_PORT_REQUEST");
+        proto_item_append_text(tree, " (%s)", "CHECK_LOGICAL_PORT_REQUEST");
         return dissect_rtcp_check_req(tvb, pinfo, sub_tree, offset, length);
     case CHECK_LOGICAL_PORT_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "CHECK_LOGICAL_PORT_RESPONSE");
-        proto_item_append_text(sub_tree, "(%s)", "CHECK_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(sub_tree, " (%s)", "CHECK_LOGICAL_PORT_RESPONSE");
+        proto_item_append_text(tree, " (%s)", "CHECK_LOGICAL_PORT_RESPONSE");
         return dissect_rtcp_check_rep(tvb, pinfo, sub_tree, offset, length);
     case KEEP_ALIVE_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "KEEP_ALIVE_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "KEEP_ALIVE_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "KEEP_ALIVE_REQUEST");
+        proto_item_append_text(tree, " (%s)", "KEEP_ALIVE_REQUEST");
         return dissect_rtcp_ka_req(tvb, pinfo, sub_tree, offset);
     case KEEP_ALIVE_RESPONSE:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "KEEP_ALIVE_RESPONSE");
-        proto_item_append_text(sub_tree, "(%s)", "KEEP_ALIVE_RESPONSE");
+        proto_item_append_text(sub_tree, " (%s)", "KEEP_ALIVE_RESPONSE");
+        proto_item_append_text(tree, " (%s)", "KEEP_ALIVE_RESPONSE");
         return dissect_rtcp_ka_rep(tvb, pinfo, sub_tree, offset);
     case LOGICAL_PORT_IS_CLOSED_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "LOGICAL_PORT_IS_CLOSED_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "LOGICAL_PORT_IS_CLOSED_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "LOGICAL_PORT_IS_CLOSED_REQUEST");
+        proto_item_append_text(tree, " (%s)", "LOGICAL_PORT_IS_CLOSED_REQUEST");
         return dissect_rtcp_port_closed_req(tvb, pinfo, sub_tree, offset);
     case UNBIND_CONNECTION_REQUEST:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "UNBIND_CONNECTION_REQUEST");
-        proto_item_append_text(sub_tree, "(%s)", "UNBIND_CONNECTION_REQUEST");
+        proto_item_append_text(sub_tree, " (%s)", "UNBIND_CONNECTION_REQUEST");
+        proto_item_append_text(tree, " (%s)", "UNBIND_CONNECTION_REQUEST");
         return dissect_rtcp_unbind_req(tvb, pinfo, sub_tree, offset);
     default:
         col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", "UNKOWN");
@@ -11109,7 +11119,6 @@ static gboolean dissect_rtcp_offset(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   //guint16 tcp_len = tvb_get_ntohs(tvb, 2);
   //gint offset = tcp_len;
   //gint length = (gint)tvb_get_ntohl(tvb, 4);
-  proto_item_append_text(rtcp_tree, "(%d)", length);
 
   length -= 14;
   gboolean result = dissect_rtps_length(tvb, pinfo, rtcp_tree, *offset, length);
@@ -11117,6 +11126,10 @@ static gboolean dissect_rtcp_offset(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   if (!result)
   {
       result = dissect_rtcp_ctrl_msg(tvb, pinfo, rtcp_tree, *offset);
+  }
+  else
+  {
+      proto_item_append_text(rtcp_tree, " (%s)", "RTPS");
   }
   *offset += length;
 
